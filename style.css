@@ -1,0 +1,282 @@
+/* =====================================================
+   NGT — Paper Rip Effect Test | style.css
+   Branch: ts-test
+   PURPOSE: Isolate and validate the paper rip scroll
+   technique. No brand content yet.
+===================================================== */
+
+/* ---- Reset & Base ---- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --paper-white: #f0ece3;
+  --paper-shadow: #c8bfaa;
+  --dark-bg: #0d0b08;
+  --dark-mid: #1a1511;
+  --accent: #c8a96a;
+  --accent-dim: #7a6340;
+  --text-dark: #e8e0d0;
+  --text-muted: #7a7060;
+
+  /* How many viewport heights the scroll "scene" occupies */
+  --scene-height: 400vh;
+  /* Rip progress: driven by JS, 0 = no rip, 1 = fully torn */
+  --rip-progress: 0;
+}
+
+html {
+  scroll-behavior: auto; /* we control scroll manually */
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--dark-bg);
+  color: var(--text-dark);
+  overflow-x: hidden;
+  /* The body is tall enough to scroll through the scene */
+  height: var(--scene-height);
+}
+
+/* =====================================================
+   LAYER 0 — Dark background (always behind)
+===================================================== */
+.bg-dark {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 60%, #2a1f0e 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 30%, #1a0d05 0%, transparent 50%),
+    var(--dark-bg);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* =====================================================
+   LAYER 1 — Content beneath the paper
+===================================================== */
+.world-below {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 8vw 12vh;
+}
+
+.below-content {
+  opacity: calc(var(--rip-progress) * 1.5);
+  transform: translateY(calc((1 - var(--rip-progress)) * 40px));
+  transition: opacity 0.05s linear, transform 0.05s linear;
+  max-width: 480px;
+}
+
+.below-content .label {
+  font-size: 0.7rem;
+  letter-spacing: 0.25em;
+  color: var(--accent-dim);
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+}
+
+.below-content h2 {
+  font-size: clamp(2.5rem, 6vw, 5rem);
+  font-weight: 900;
+  line-height: 1;
+  color: var(--text-dark);
+  margin-bottom: 1.2rem;
+}
+
+.below-content .sub {
+  font-size: 1rem;
+  color: var(--text-muted);
+  font-weight: 300;
+  line-height: 1.6;
+}
+
+/* =====================================================
+   SVG DEFS — hidden, zero-size, just provides filters
+===================================================== */
+.svg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* =====================================================
+   LAYER 2 — The Paper World (fixed, with clip-path)
+===================================================== */
+.paper-world {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none; /* allows clicking through once torn */
+}
+
+.paper-sheet {
+  position: absolute;
+  inset: 0;
+  background: var(--paper-white);
+  /* The CSS clip-path is set via JS — we use a polygon approximation here
+     but the actual rip path is carved by SVG clipPath in JS */
+  clip-path: url(#ripClip);
+  overflow: visible; /* allows breakout element to escape */
+  pointer-events: auto;
+
+  /* Subtle paper drop shadow along the torn bottom */
+  filter: drop-shadow(0 8px 32px rgba(0,0,0,0.5));
+}
+
+/* ---- Paper grain texture ---- */
+.paper-texture {
+  position: absolute;
+  inset: 0;
+  /* Layered noise for tactile paper feel */
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ---- Paper content ---- */
+.paper-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 0 8vw;
+  color: #1a1511;
+}
+
+.paper-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--accent-dim);
+  margin-bottom: 1.5rem;
+  font-weight: 600;
+}
+
+.paper-content h1 {
+  font-size: clamp(3.5rem, 10vw, 9rem);
+  font-weight: 900;
+  line-height: 0.95;
+  color: #1a1410;
+  margin-bottom: 2rem;
+}
+
+.paper-content h1 em {
+  font-style: normal;
+  color: var(--accent);
+  display: block;
+}
+
+.paper-sub {
+  font-size: 1rem;
+  color: #5a5040;
+  font-weight: 300;
+  max-width: 340px;
+  line-height: 1.7;
+}
+
+/* ---- Scroll hint arrow ---- */
+.scroll-hint {
+  margin-top: 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.scroll-hint span {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: rotate(45deg);
+  animation: bounceDown 1.4s ease-in-out infinite;
+  opacity: 0.7;
+}
+
+@keyframes bounceDown {
+  0%, 100% { transform: rotate(45deg) translateY(0); }
+  50% { transform: rotate(45deg) translateY(6px); }
+}
+
+/* =====================================================
+   BREAKOUT ELEMENT — floats above the torn edge
+===================================================== */
+.breakout-element {
+  position: absolute;
+  /* JS will position this near the rip edge */
+  bottom: calc(var(--rip-progress) * 100vh - 40px + 60px);
+  right: 8vw;
+  z-index: 10; /* above paper, above everything */
+  pointer-events: auto;
+
+  opacity: calc(max(0, (var(--rip-progress) - 0.15) * 3));
+  transform:
+    translateY(calc((1 - var(--rip-progress)) * 80px))
+    rotate(calc((var(--rip-progress) - 0.5) * -4deg));
+  transition: opacity 0.05s linear, transform 0.05s linear;
+}
+
+.breakout-inner {
+  background: #fff;
+  border: 1px solid #e0d8cc;
+  border-radius: 4px;
+  padding: 1.2rem 1.6rem;
+  max-width: 240px;
+  box-shadow:
+    0 2px 8px rgba(0,0,0,0.08),
+    0 16px 48px rgba(0,0,0,0.15);
+}
+
+.breakout-tag {
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+.breakout-text {
+  font-size: 0.8rem;
+  color: #3a3020;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* =====================================================
+   DEBUG PANEL
+===================================================== */
+.debug-panel {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  z-index: 100;
+  background: rgba(0,0,0,0.7);
+  color: #aaffaa;
+  font-family: monospace;
+  font-size: 0.75rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}

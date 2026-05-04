@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NGT — Paper Rip Effect Test</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+    LAYER 0 — Darkroom backdrop (sits behind everything)
+  ============================================================ -->
+  <div class="bg-dark" aria-hidden="true"></div>
+
+  <!-- ============================================================
+    LAYER 1 — Content that lives BELOW the paper (dark world)
+  ============================================================ -->
+  <section class="world-below">
+    <div class="below-content">
+      <p class="label">BELOW THE SURFACE</p>
+      <h2>What lives<br/>in the dark.</h2>
+      <p class="sub">This is the world beneath the paper — revealed as the tear pulls back.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+    LAYER 2 — The Paper + Rip Mask
+    The SVG mask defines the torn edge. JS morphs the path on scroll.
+  ============================================================ -->
+  <div class="paper-world" id="paperWorld">
+
+    <!-- Hidden SVG defs — defines the mask used on .paper-sheet -->
+    <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Noise filter for paper texture grain -->
+        <filter id="paper-noise" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.65 0.65"
+            numOctaves="4"
+            seed="3"
+            stitchTiles="stitch"
+            result="noise"
+          />
+          <feColorMatrix type="saturate" values="0" result="grayNoise" />
+          <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply" result="blended" />
+          <feComposite in="blended" in2="SourceGraphic" operator="in" />
+        </filter>
+
+        <!-- Ragged edge noise for the tear itself -->
+        <filter id="rip-fuzz" x="-5%" y="-5%" width="110%" height="110%">
+          <feTurbulence
+            type="turbulence"
+            baseFrequency="0.04 0.02"
+            numOctaves="5"
+            seed="42"
+            result="noise"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="noise"
+            scale="6"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+
+        <!-- The clipPath that carves the ripped edge into .paper-sheet -->
+        <clipPath id="ripClip" clipPathUnits="objectBoundingBox">
+          <!-- Path is in 0..1 space. JS will update the torn-edge points. -->
+          <!-- Default: covers full paper (no rip visible yet) -->
+          <path id="ripPath"
+            d="M0,0 L1,0 L1,1 L0,1 Z"
+          />
+        </clipPath>
+      </defs>
+    </svg>
+
+    <!-- The paper sheet itself -->
+    <div class="paper-sheet" id="paperSheet">
+
+      <!-- Paper texture overlay (CSS noise on top) -->
+      <div class="paper-texture" aria-hidden="true"></div>
+
+      <!-- Paper content -->
+      <div class="paper-content">
+        <span class="paper-label">TECHNICAL SPIKE — ts-test</span>
+        <h1>The Next<br/><em>Geeg Think</em></h1>
+        <p class="paper-sub">Scroll down to tear the paper.</p>
+        <div class="scroll-hint" aria-hidden="true">
+          <span></span>
+        </div>
+      </div>
+
+      <!-- Overlapping element that "breaks out" of the paper edge -->
+      <div class="breakout-element" id="breakout" aria-label="Floating breakout card">
+        <div class="breakout-inner">
+          <p class="breakout-tag">PROOF OF CONCEPT</p>
+          <p class="breakout-text">This card overlaps the torn edge — z-index above the paper.</p>
+        </div>
+      </div>
+
+    </div><!-- /paper-sheet -->
+  </div><!-- /paper-world -->
+
+  <!-- ============================================================
+    DEBUG PANEL — Shows scroll progress (remove in production)
+  ============================================================ -->
+  <div class="debug-panel" id="debugPanel">
+    <span id="debugScroll">scroll: 0%</span>
+    <span id="debugRip">rip: 0%</span>
+  </div>
+
+  <script src="rip.js"></script>
+</body>
+</html>

@@ -1,149 +1,124 @@
 /**
- * rip.js — NGT Paper Rip Scroll Effect
- * Branch: ts-test
+ * rip.js — NGT Vertical V-Tear Effect
  *
- * Technique:
- *   1. Track scroll position (0 = top, 1 = end of scene).
- *   2. Map scroll to ripProgress (0..1), eased.
- *   3. Generate a randomised torn-edge SVG path using
- *      a seeded pseudo-random noise function.
- *   4. Update the SVG clipPath on the paper sheet.
- *   5. Expose --rip-progress CSS variable for CSS-driven
- *      child animations (breakout element, below content).
- *
- * NO external libraries. Vanilla JS only.
+ * Logic:
+ *   - Splits the paper into two halves (Left and Right).
+ *   - The tear starts at the top and widens into a 'V' shape as you scroll.
+ *   - Jagged edges are generated along the vertical split.
  */
 
 (function () {
   'use strict';
 
   // ── Config ──────────────────────────────────────────────────────────
-  const SCENE_HEIGHT_VH = 400; // must match CSS --scene-height (400vh)
-  const RIP_START_SCROLL = 0.05;  // scroll fraction when rip begins
-  const RIP_END_SCROLL   = 0.55;  // scroll fraction when rip is complete
-  const EDGE_SEGMENTS    = 80;    // more = more detailed jagged edge
-  const JAGGEDNESS      = 0.032; // amplitude of random displacement (0..1 in clipPath space)
-  const NOISE_SEED       = 7;    // change to get different random shapes
+  const EDGE_SEGMENTS = 60;   // Precision of the jagged edge
+  const JAGGEDNESS   = 0.04; // Max width of the "zig-zags"
+  const NOISE_SEED    = 13;   // Base seed for deterministic randomness
 
   // ── DOM refs ────────────────────────────────────────────────────────
-  const ripPath    = document.getElementById('ripPath');
-  const paperSheet = document.getElementById('paperSheet');
+  const pathLeft    = document.getElementById('pathLeft');
+  const pathRight   = document.getElementById('pathRight');
   const debugScroll = document.getElementById('debugScroll');
-  const debugRip    = document.getElementById('debugRip');
 
-  // ── State ────────────────────────────────────────────────────────────
-  let lastRipProgress = -1;
+  // ── State ───────────────────────────────────────────────────────────
+  let lastProgress = -1;
 
-  // ── Seeded pseudo-random (LCG) ───────────────────────────────────────
-  // Returns a deterministic value in [-1, 1] for a given seed + index.
-  // This means the rip shape is ALWAYS the same, not random every frame.
+  // ── Seeded pseudo-random ────────────────────────────────────────────
   function seededRand(seed, index) {
-    const x = Math.sin(seed * 9301 + index * 49297 + 233) * 93451;
+    const x = Math.sin(seed * 12.9898 + index * 78.233) * 43758.5453;
     return (x - Math.floor(x)) * 2 - 1; // -1 to 1
   }
 
-  // ── Build the torn-edge SVG path ────────────────────────────────────
+  // ── Build Paths ─────────────────────────────────────────────────────
   /**
-   * Generates an SVG path string for the clipPath.
-   * clipPathUnits="objectBoundingBox" so all coords are 0..1.
-   *
-   * @param {number} progress  0 = no rip (full paper), 1 = fully torn
-   * @returns {string} SVG path d attribute
+   * Updates the SVG paths for both halves based on scroll progress.
+   * Progress: 0 = sealed, 1 = wide open.
    */
-  function buildRipPath(progress) {
-    if (progress <= 0) {
-      // Full paper — simple rectangle
-      return 'M0,0 L1,0 L1,1 L0,1 Z';
+  function updateTear(progress) {
+    if (Math.abs(progress - lastProgress) < 0.0005) return;
+    lastProgress = progress;
+
+    // tearY: How far down the tear has reached (0..1)
+    // We multiply by 1.2 so it eventually clears the bottom (y=1)
+    const tearY = Math.min(1.2, progress * 1.5);
+
+    // widthAtTop: How wide the opening is at the top edge (y=0)
+    const maxWidth = 0.6; // max opening is 60% of screen width
+    const widthAtTop = progress * maxWidth;
+
+    // Generate Points
+    let leftPoints = [];
+    let rightPoints = [];
+
+    // Top to Bottom
+    for (let i = 0; i <= EDGE_SEGMENTS; i++) {
+      const y = i / EDGE_SEGMENTS; // 0..1
+
+      // Gap at this specific Y height
+      // If y > tearY, paper is still joined at center (0.5)
+      // Otherwise, gap scales linearly from widthAtTop (at y=0) to 0 (at y=tearY)
+      let currentGap = 0;
+      if (y < tearY) {
+        currentGap = widthAtTop * (1 - y / tearY);
+      }
+
+      // Add jaggedness noise
+      // Noise only applies where there IS a tear
+      const noiseAmp = y <= tearY ? JAGGEDNESS : 0;
+      const nLeft  = seededRand(NOISE_SEED, i) * noiseAmp;
+      const nRight = seededRand(NOISE_SEED + 50, i) * noiseAmp;
+
+      // x coords (centered at 0.5)
+      const xLeft  = 0.5 - currentGap / 2 + nLeft;
+      const xRight = 0.5 + currentGap / 2 + nRight;
+
+      leftPoints.push({ x: xLeft, y: y });
+      rightPoints.push({ x: xRight, y: y });
     }
 
-    if (progress >= 1) {
-      // Fully torn — paper is gone (empty clip = nothing shown)
-      // We keep a tiny sliver at top so it doesn't flash
-      return 'M0,0 L1,0 L1,0 L0,0 Z';
+    // Construct SVG Path Strings
+    // Left Half: M(0,0) -> L(xLeftTop, 0) -> [jagged edge] -> L(xLeftBottom, 1) -> L(0,1) Z
+    let dLeft = `M0,0 L${leftPoints[0].x.toFixed(4)},0 `;
+    for (let p of leftPoints) {
+      dLeft += `L${p.x.toFixed(4)},${p.y.toFixed(4)} `;
     }
+    dLeft += `L0,1 Z`;
 
-    // The torn bottom edge sits at this Y position (0=top, 1=bottom)
-    // progress 0 → edge at y=1 (bottom, invisible)
-    // progress 1 → edge at y=0 (top, fully torn off)
-    const baseY = 1 - progress;
-
-    // Build the top part of the paper (rectangle top)
-    let d = `M0,0 L1,0 L1,${baseY.toFixed(4)} `;
-
-    // Build the jagged bottom edge, right → left
-    for (let i = EDGE_SEGMENTS; i >= 0; i--) {
-      const t = i / EDGE_SEGMENTS; // 0..1 along X axis
-      const x = t;
-
-      // Multi-frequency noise for organic feel
-      const noise1 = seededRand(NOISE_SEED, i);
-      const noise2 = seededRand(NOISE_SEED + 10, i * 2 + 1) * 0.5;
-      const noise3 = seededRand(NOISE_SEED + 20, i * 3 + 2) * 0.25;
-      const combinedNoise = (noise1 + noise2 + noise3) / 1.75;
-
-      // Noise amplitude scales by jaggedness
-      // Near edges (x close to 0 or 1) we reduce noise for cleaner corners
-      const edgeFade = Math.sin(Math.PI * x); // 0 at edges, 1 at center
-      const ny = baseY + combinedNoise * JAGGEDNESS * edgeFade;
-
-      // Clamp so the paper never goes past top or bottom
-      const clampedY = Math.max(0, Math.min(1, ny));
-
-      d += `L${x.toFixed(4)},${clampedY.toFixed(4)} `;
+    // Right Half: M(1,0) -> L(xRightTop, 0) -> [jagged edge] -> L(xRightBottom, 1) -> L(1,1) Z
+    let dRight = `M1,0 L${rightPoints[0].x.toFixed(4)},0 `;
+    for (let p of rightPoints) {
+      dRight += `L${p.x.toFixed(4)},${p.y.toFixed(4)} `;
     }
+    dRight += `L1,1 Z`;
 
-    d += ' Z';
-    return d;
-  }
+    pathLeft.setAttribute('d', dLeft);
+    pathRight.setAttribute('d', dRight);
 
-  // ── Easing function ──────────────────────────────────────────────────
-  function easeInOut(t) {
-    return t < 0.5
-      ? 2 * t * t
-      : -1 + (4 - 2 * t) * t;
-  }
-
-  // ── Main scroll handler ─────────────────────────────────────────────
-  function onScroll() {
-    const scrollY   = window.scrollY;
-    const maxScroll = document.body.scrollHeight - window.innerHeight;
-    const scrollFraction = maxScroll > 0 ? scrollY / maxScroll : 0;
-
-    // Map scroll fraction to rip progress
-    const rawProgress = (scrollFraction - RIP_START_SCROLL) /
-                        (RIP_END_SCROLL - RIP_START_SCROLL);
-    const ripProgress = Math.max(0, Math.min(1, easeInOut(rawProgress)));
-
-    // Only update DOM if value meaningfully changed (perf)
-    if (Math.abs(ripProgress - lastRipProgress) < 0.001) return;
-    lastRipProgress = ripProgress;
-
-    // Update SVG clip path
-    const pathData = buildRipPath(ripProgress);
-    ripPath.setAttribute('d', pathData);
-
-    // Update CSS variable for child animations
-    document.documentElement.style.setProperty(
-      '--rip-progress',
-      ripProgress.toFixed(4)
-    );
+    // Update Global CSS variable
+    document.documentElement.style.setProperty('--rip-progress', progress.toFixed(4));
 
     // Debug
-    debugScroll.textContent = `scroll: ${(scrollFraction * 100).toFixed(1)}%`;
-    debugRip.textContent    = `rip: ${(ripProgress * 100).toFixed(1)}%`;
+    debugScroll.textContent = `tear: ${(progress * 100).toFixed(1)}%`;
+  }
+
+  // ── Scroll Listener ──────────────────────────────────────────────────
+  function onScroll() {
+    const scrollY = window.scrollY;
+    const maxScroll = document.body.scrollHeight - window.innerHeight;
+    const progress = maxScroll > 0 ? scrollY / maxScroll : 0;
+
+    // Easing for smoother "tear feel"
+    // We want it to be stiff at first then open up
+    const eased = Math.pow(progress, 1.2);
+
+    updateTear(eased);
   }
 
   // ── Init ─────────────────────────────────────────────────────────────
   function init() {
-    // Passive scroll listener for best performance
     window.addEventListener('scroll', onScroll, { passive: true });
-
-    // Run once on load
     onScroll();
-
-    console.log('[NGT rip.js] Paper rip prototype initialised.');
-    console.log('Scroll down to see the effect.');
-    console.log('Adjust JAGGEDNESS, EDGE_SEGMENTS, NOISE_SEED in rip.js to tune.');
+    console.log('[NGT] Vertical V-Tear prototype initialised.');
   }
 
   if (document.readyState === 'loading') {
